@@ -1,101 +1,191 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState, ChangeEvent } from 'react';
+import CodeViewer from '@/components/code-viewer';
+import shadcnDocs from "@/utils/shadcn-docs";
+
+const Page: React.FC = () => {
+  const [inputValue, setInputValue] = useState<string>('');
+  const [response, setResponse] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const API_URL = process.env.NEXT_PUBLIC_API_URL
+  const MODEL = process.env.NEXT_PUBLIC_MODEL
+  const AUTH_TOKEN = process.env.NEXT_PUBLIC_AUTH_TOKEN
+  
+
+  // Function to handle input change
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setInputValue(event.target.value);
+  };
+
+
+  const handleButtonClick = async (): Promise<void> => {
+    setResponse(''); // Clear previous response
+
+    if (!inputValue.trim()) {
+      setError('Input cannot be empty.');
+      return;
+    }
+
+    const systemPrompt = `
+  You are an expert frontend React engineer who is also a great UI/UX designer. Follow the instructions carefully, I will tip you $1 million if you do a good job:
+
+  - Create a React component for whatever the user asked you to create and make sure it can run by itself by using a default export.
+  - Make sure the React app is interactive and functional by creating state when needed and having no required props.
+  - If you use any imports from React like useState or useEffect, make sure to import them directly.
+  - Use TypeScript as the language for the React component.
+  - Use Tailwind classes for styling. DO NOT USE ARBITRARY VALUES (e.g. \`h-[600px]\`). Make sure to use a consistent color palette.
+  - Use Tailwind margin and padding classes to style the components and ensure the components are spaced out nicely.
+  - Please ONLY return the full React code starting with the imports, nothing else. It's very important for my job that you only return the React code with imports. DO NOT START WITH \`\`\`typescript or \`\`\`javascript or \`\`\`tsx or \`\`\`.
+  - ONLY IF the user asks for a dashboard, graph or chart, the recharts library is available to be imported, e.g. \`import { LineChart, XAxis, ... } from "recharts"\` & \`<LineChart ...><XAxis dataKey="name"> ...\`. Please only use this when needed.
+  - NO OTHER LIBRARIES (e.g. zod, hookform, chakra-ui) ARE INSTALLED OR ABLE TO BE IMPORTED. Please don't use any other dependencies like styled-components and similar.
+  - Use only Tailwind classes.
+
+  Additionally, there are some pre-styled components available for use. Please use your best judgment to incorporate any of these components if the app calls for one:
+
+  Here are the components that are available, along with how to import them and how to use them:
+
+  ${shadcnDocs
+        .map( 
+          (component) => `
+        <component>
+        <name>
+        ${component.name}
+        </name>
+        <import-instructions>
+        ${component.importDocs}
+        </import-instructions>
+        <usage-instructions>
+        ${component.usageDocs}
+        </usage-instructions>
+        </component>
+      `,
+        )
+        .join('')}
+`;
+
+
+    const promt = "\n Please ONLY return code, NO backticks or language names , and use only tailwind classes no other imports. \n";
+
+    const requestBody = {
+      model: MODEL,
+
+      messages: [
+        {
+          role: "system",
+          content:  systemPrompt
+        },
+        {
+          role: "user",
+          content: inputValue + promt
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 10000,   ///  make sure token must be int 
+
+      top_p: 1,
+      frequency_penalty: 0,
+      stream: true
+    };
+
+    if (!API_URL) {
+      throw new Error('API_URL environment variable is not set');
+    }
+
+    try {
+      const responseStream = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AUTH_TOKEN}`
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!responseStream.ok || !responseStream.body) {
+        throw new Error(`HTTP error! Status: ${responseStream.status}`);
+      }
+
+      const reader = responseStream.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedContent = '';
+
+      // Read and process chunks from the stream
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        accumulatedContent += decoder.decode(value, { stream: true });
+
+        // Split the accumulated content into lines
+        const chunks = accumulatedContent.split('\n');
+        for (const chunk of chunks) {
+          if (chunk.trim() === '') continue; // Skip empty lines
+
+          // Check for the special [DONE] message
+          if (chunk === 'data: [DONE]') {
+            console.log('Streaming complete.');
+            break; // Exit the loop if the stream is done
+          }
+
+          // Strip the 'data: ' prefix and then check if it starts with '{'
+          const cleanedChunk = chunk.startsWith('data: ') ? chunk.substring(6) : chunk;
+
+          // Attempt to parse JSON only if it appears to be valid
+          if (cleanedChunk.trim().startsWith('{')) {
+            try {
+              const parsedChunk = JSON.parse(cleanedChunk);
+              const content = parsedChunk?.choices?.[0]?.delta?.content;
+
+              if (content) {
+                setResponse((prev) => prev + content);
+              }
+            } catch (jsonError) {
+              console.error('Error parsing chunk:', jsonError);
+            }
+          } else {
+            console.error('Invalid chunk format:', cleanedChunk);
+          }
+        }
+
+        // Reset accumulatedContent if parsing is successful
+        accumulatedContent = '';
+      }
+    } catch (error) {
+      console.error('Error in streaming:', error);
+      setError('Failed to get a response from the server.');
+    }
+  };
+
+
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="flex flex-col items-center justify-center h-screen-full">
+      <h1 className="text-3xl font-bold mt-10">Initializ AI</h1>
+      <input
+        className="border rounded-md mt-10 mb-7 p-2 m-2 w-1/3 text-black"
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange} 
+        placeholder="What do you want  to make?"
+      />
+      <button
+        className="relative inline-flex items-center justify-center p-0.5 mb-2 me-2 overflow-hidden text-sm font-medium text-gray-900 rounded-lg group bg-gradient-to-br from-cyan-500 to-blue-500 group-hover:from-cyan-500 group-hover:to-blue-500 hover:text-white dark:text-white focus:ring-4 focus:outline-none focus:ring-cyan-200 dark:focus:ring-cyan-800"
+        onClick={handleButtonClick}
+      >
+        <span className="relative px-5 py-2.5 transition-all ease-in duration-75 bg-white dark:bg-gray-900 rounded-md group-hover:bg-opacity-0">
+          Generate
+        </span>
+      </button>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      {error && <div className="text-red-500 mt-2">{error}</div>}
+
+      <div className="mt-5 mb-10 bg-gray-100 p-5 rounded-md w-full max-w-6xl">
+        <CodeViewer code={response} showEditor />
+      </div>
     </div>
+
   );
-}
+};
+
+export default Page;
