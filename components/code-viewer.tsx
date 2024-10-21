@@ -51,7 +51,7 @@ export default function CodeViewer({
   );
 }
 
-let sharedProps = {
+const  sharedProps = {
   template: "react-ts",
   theme: draculaTheme,
   customSetup: {
@@ -96,13 +96,13 @@ let sharedProps = {
   },
 } as const;
 
-let sharedOptions = {
+const  sharedOptions = {
   externalResources: [
     "https://unpkg.com/@tailwindcss/ui/dist/tailwind-ui.min.css",
   ],
 };
 
-let sharedFiles = {
+const  sharedFiles = {
   "/lib/utils.ts": shadcnComponents.utils,
   "/components/ui/accordion.tsx": shadcnComponents.accordian,
   "/components/ui/alert-dialog.tsx": shadcnComponents.alertDialog,
